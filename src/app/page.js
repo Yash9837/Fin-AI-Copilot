@@ -1,103 +1,271 @@
-import Image from "next/image";
+'use client';
+
+import { useState, useEffect } from 'react';
+import InboxSidebar from '../components/InboxSidebar';
+import ChatArea from '../components/ChatArea';
+import AICopilot from '../components/AICopilot';
+import Composer from '../components/Composer';
+import DetailsPanel from '../components/DetailsPanel';
+import { conversations, initialConversation } from '../data/dummyData';
+import { generateResponse, summarizeConversation, rephraseTone } from '../utils/geminiApi';
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              src/app/page.js
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [activeConversation, setActiveConversation] = useState(initialConversation);
+  const [composerText, setComposerText] = useState('');
+  const [showSummary, setShowSummary] = useState(false);
+  const [conversationSummary, setConversationSummary] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
+  const [error, setError] = useState(null);
+  const [activeTab, setActiveTab] = useState('ai-copilot');
+  const [panelWidth, setPanelWidth] = useState(256); // Default width in pixels (equivalent to lg:w-64)
+  const [isResizing, setIsResizing] = useState(false);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
+  const handleSelectConversation = (conversation) => {
+    setActiveConversation({
+      ...initialConversation,
+      user: conversation.user,
+      messages: initialConversation.messages.filter((msg) => msg.sender !== 'system'),
+    });
+    setShowSummary(false);
+    setConversationSummary('');
+    setError(null);
+  };
+
+  const handleAddToComposer = (content) => {
+    setComposerText(content);
+  };
+
+  const handleRephrase = async (tone) => {
+    if (composerText.trim()) {
+      setError(null);
+      const response = await rephraseTone(composerText, tone);
+      if (response.success) {
+        setComposerText(response.data);
+      } else {
+        setError(response.error);
+      }
+    }
+  };
+
+  const handleSummarize = async () => {
+    setError(null);
+    const response = await summarizeConversation(activeConversation.messages);
+    if (response.success) {
+      setConversationSummary(response.data);
+      setShowSummary(true);
+    } else {
+      setError(response.error);
+    }
+  };
+
+  const handleSendMessage = async (messageText) => {
+    const newMessage = {
+      id: activeConversation.messages.length + 1,
+      content: messageText,
+      sender: 'agent',
+      timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: 'numeric' }),
+      status: 'seen',
+    };
+
+    const updatedMessages = [...activeConversation.messages, newMessage];
+    setActiveConversation({
+      ...activeConversation,
+      messages: updatedMessages,
+    });
+
+    setIsTyping(true);
+    setError(null);
+    const context = updatedMessages.map(msg => ({ sender: msg.sender, content: msg.content }));
+    const prompt = 'Respond to the user as a helpful customer support agent.';
+    const response = await generateResponse(prompt, context);
+
+    setIsTyping(false);
+    if (response.success) {
+      const aiMessage = {
+        id: updatedMessages.length + 1,
+        content: response.data,
+        sender: 'bot',
+        timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: 'numeric' }),
+        status: 'delivered',
+      };
+
+      setActiveConversation({
+        ...activeConversation,
+        messages: [...updatedMessages, aiMessage],
+      });
+    } else {
+      setError(response.error);
+    }
+  };
+
+  const handleReplyWithAI = async () => {
+    setIsTyping(true);
+    setError(null);
+    const context = activeConversation.messages.map(msg => ({ sender: msg.sender, content: msg.content }));
+    const prompt = 'Generate a helpful response to continue the conversation as a customer support agent.';
+    const response = await generateResponse(prompt, context);
+
+    setIsTyping(false);
+    if (response.success) {
+      const aiMessage = {
+        id: activeConversation.messages.length + 1,
+        content: response.data,
+        sender: 'agent',
+        timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: 'numeric' }),
+        status: 'seen',
+      };
+
+      setActiveConversation({
+        ...activeConversation,
+        messages: [...activeConversation.messages, aiMessage],
+      });
+
+      setIsTyping(true);
+      const userPrompt = 'Respond to the agent as a user continuing the conversation.';
+      const userResponse = await generateResponse(userPrompt, [...activeConversation.messages, aiMessage]);
+
+      setIsTyping(false);
+      if (userResponse.success) {
+        const userMessage = {
+          id: activeConversation.messages.length + 2,
+          content: userResponse.data,
+          sender: 'bot',
+          timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: 'numeric' }),
+          status: 'delivered',
+        };
+
+        setActiveConversation({
+          ...activeConversation,
+          messages: [...activeConversation.messages, aiMessage, userMessage],
+        });
+      } else {
+        setError(userResponse.error);
+      }
+    } else {
+      setError(response.error);
+    }
+  };
+
+  const handleSuggestVideoCall = () => {
+    const videoCallMessage = {
+      id: activeConversation.messages.length + 1,
+      content: 'This issue might be complex. Would you like to schedule a video call to resolve it more efficiently?',
+      sender: 'agent',
+      timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: 'numeric' }),
+      status: 'seen',
+    };
+
+    setActiveConversation({
+      ...activeConversation,
+      messages: [...activeConversation.messages, videoCallMessage],
+    });
+  };
+
+  const handleMouseDown = () => {
+    setIsResizing(true);
+  };
+
+  const handleMouseMove = (e) => {
+    if (isResizing) {
+      const container = document.querySelector('.main-container');
+      if (container) {
+        const containerRect = container.getBoundingClientRect();
+        const newWidth = containerRect.right - e.clientX;
+        if (newWidth >= 200 && newWidth <= 500) {
+          setPanelWidth(newWidth);
+        }
+      }
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsResizing(false);
+  };
+
+  useEffect(() => {
+    if (isResizing) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing]);
+
+  return (
+    <main className="flex h-screen flex-col lg:flex-row overflow-hidden">
+      <InboxSidebar
+        conversations={conversations}
+        activeConversation={activeConversation}
+        onSelectConversation={handleSelectConversation}
+        className="w-full lg:w-64 md:w-56 sm:w-full"
+      />
+      <div className="flex-1 flex flex-col">
+        {error && (
+          <div className="p-4 bg-red-100 text-red-700 text-sm">
+            <p>{error}</p>
+          </div>
+        )}
+        <div className="flex flex-1 overflow-hidden main-container">
+          <div className="flex-1 flex flex-col">
+            <ChatArea
+              conversation={activeConversation}
+              showSummary={showSummary}
+              conversationSummary={conversationSummary}
+              onSendMessage={handleSendMessage}
+              onReplyWithAI={handleReplyWithAI}
+              isTyping={isTyping}
+              onSuggestVideoCall={handleSuggestVideoCall}
             />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+            <Composer
+              composerText={composerText}
+              setComposerText={setComposerText}
+              handleRephrase={handleRephrase}
+              handleSummarize={handleSummarize}
+              onSendMessage={handleSendMessage}
+            />
+          </div>
+          <div
+            className="flex flex-col h-full border-l border-slate-200 relative"
+            style={{ width: `${panelWidth}px`, minWidth: '200px', maxWidth: '500px' }}
+            onMouseDown={handleMouseDown}
           >
-            Read our docs
-          </a>
+            <div className="absolute left-0 top-0 h-full w-2 cursor-col-resize -ml-1 hover:bg-gray-200 transition-all z-10" />
+            <div className="flex justify-center border-b border-slate-200 p-4">
+              <div className="flex gap-6">
+                <button
+                  onClick={() => setActiveTab('ai-copilot')}
+                  className={`pb-2 text-sm ${
+                    activeTab === 'ai-copilot'
+                      ? 'text-blue-600 font-semibold border-b-2 border-blue-600'
+                      : 'text-gray-600'
+                  }`}
+                >
+                  AI Copilot
+                </button>
+                <button
+                  onClick={() => setActiveTab('details')}
+                  className={`pb-2 text-sm ${
+                    activeTab === 'details'
+                      ? 'text-blue-600 font-semibold border-b-2 border-blue-600'
+                      : 'text-gray-600'
+                  }`}
+                >
+                  Details
+                </button>
+              </div>
+            </div>
+            {activeTab === 'ai-copilot' && (
+              <AICopilot
+                conversation={activeConversation}
+                onAddToComposer={handleAddToComposer}
+              />
+            )}
+            {activeTab === 'details' && <DetailsPanel user={activeConversation.user} />}
+          </div>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+      </div>
+    </main>
   );
 }
