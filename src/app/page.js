@@ -7,9 +7,11 @@ import AICopilot from '../components/AICopilot';
 import Composer from '../components/Composer';
 import DetailsPanel from '../components/DetailsPanel';
 import { conversations, initialConversation } from '../data/dummyData';
-import { generateResponse, summarizeConversation, rephraseTone } from '../utils/geminiApi';
+import { generateResponse, summarizeConversation, rephraseTone } from '../utils/claudeApi';
+import { saveConversations, loadConversations, saveSettings, loadSettings } from '../utils/storage';
 
 export default function Home() {
+  const [allConversations, setAllConversations] = useState(conversations);
   const [activeConversation, setActiveConversation] = useState(initialConversation);
   const [composerText, setComposerText] = useState('');
   const [showSummary, setShowSummary] = useState(false);
@@ -17,18 +19,80 @@ export default function Home() {
   const [isTyping, setIsTyping] = useState(false);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('ai-copilot');
-  const [panelWidth, setPanelWidth] = useState(256); // Default width in pixels (equivalent to lg:w-64)
+  const [panelWidth, setPanelWidth] = useState(256);
   const [isResizing, setIsResizing] = useState(false);
+  const [settings, setSettings] = useState(null);
+
+  // Load saved data on mount
+  useEffect(() => {
+    const savedConversations = loadConversations();
+    const savedSettings = loadSettings();
+    
+    if (savedConversations && savedConversations.length > 0) {
+      setAllConversations(savedConversations);
+    }
+    
+    setSettings(savedSettings);
+  }, []);
+
+  // Auto-save conversations
+  useEffect(() => {
+    if (settings?.autoSave) {
+      const timer = setTimeout(() => {
+        saveConversations(allConversations);
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [allConversations, settings]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyPress = (e) => {
+      // Ctrl/Cmd + K: Focus search
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        document.querySelector('input[placeholder*="Search"]')?.focus();
+      }
+      
+      // Ctrl/Cmd + Enter: Send message
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        if (composerText.trim()) {
+          handleSendMessage(composerText);
+        }
+      }
+      
+      // Escape: Clear composer
+      if (e.key === 'Escape') {
+        setComposerText('');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [composerText]);
 
   const handleSelectConversation = (conversation) => {
     setActiveConversation({
       ...initialConversation,
+      id: conversation.id,
       user: conversation.user,
       messages: initialConversation.messages.filter((msg) => msg.sender !== 'system'),
     });
+    
+    // Mark as read
+    setAllConversations(prev => prev.map(c => 
+      c.id === conversation.id ? { ...c, unread: false } : c
+    ));
+    
     setShowSummary(false);
     setConversationSummary('');
     setError(null);
+  };
+
+  const handleTogglePriority = (conversationId) => {
+    setAllConversations(prev => prev.map(c =>
+      c.id === conversationId ? { ...c, priority: !c.priority } : c
+    ));
   };
 
   const handleAddToComposer = (content) => {
@@ -59,6 +123,8 @@ export default function Home() {
   };
 
   const handleSendMessage = async (messageText) => {
+    if (!messageText.trim()) return;
+    
     const newMessage = {
       id: activeConversation.messages.length + 1,
       content: messageText,
@@ -72,14 +138,17 @@ export default function Home() {
       ...activeConversation,
       messages: updatedMessages,
     });
-
+    
+    setComposerText('');
     setIsTyping(true);
     setError(null);
+    
     const context = updatedMessages.map(msg => ({ sender: msg.sender, content: msg.content }));
-    const prompt = 'Respond to the user as a helpful customer support agent.';
+    const prompt = 'Respond to the customer as a helpful support agent. Keep it concise and professional.';
     const response = await generateResponse(prompt, context);
 
     setIsTyping(false);
+    
     if (response.success) {
       const aiMessage = {
         id: updatedMessages.length + 1,
@@ -94,7 +163,8 @@ export default function Home() {
         messages: [...updatedMessages, aiMessage],
       });
     } else {
-      setError(response.error);
+      setError(response.error || 'Failed to generate AI response. Please try again.');
+      setTimeout(() => setError(null), 5000);
     }
   };
 
@@ -194,17 +264,28 @@ export default function Home() {
   }, [isResizing]);
 
   return (
-    <main className="flex h-screen flex-col lg:flex-row overflow-hidden">
+    <main className="flex h-screen flex-col lg:flex-row overflow-hidden bg-slate-50">
       <InboxSidebar
-        conversations={conversations}
+        conversations={allConversations}
         activeConversation={activeConversation}
         onSelectConversation={handleSelectConversation}
+        onTogglePriority={handleTogglePriority}
         className="w-full lg:w-64 md:w-56 sm:w-full"
       />
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col bg-white">
         {error && (
-          <div className="p-4 bg-red-100 text-red-700 text-sm">
-            <p>{error}</p>
+          <div className="p-3 bg-red-50 border-b border-red-200 text-red-700 text-sm flex items-center justify-between animate-fadeIn">
+            <div className="flex items-center gap-2">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span>{error}</span>
+            </div>
+            <button onClick={() => setError(null)} className="text-red-700 hover:text-red-900">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
         )}
         <div className="flex flex-1 overflow-hidden main-container">
@@ -227,29 +308,29 @@ export default function Home() {
             />
           </div>
           <div
-            className="flex flex-col h-full border-l border-slate-200 relative"
+            className="flex flex-col h-full border-l border-slate-200 relative bg-white"
             style={{ width: `${panelWidth}px`, minWidth: '200px', maxWidth: '500px' }}
             onMouseDown={handleMouseDown}
           >
-            <div className="absolute left-0 top-0 h-full w-2 cursor-col-resize -ml-1 hover:bg-gray-200 transition-all z-10" />
+            <div className="absolute left-0 top-0 h-full w-2 cursor-col-resize -ml-1 hover:bg-blue-200 transition-all z-10" />
             <div className="flex justify-center border-b border-slate-200 p-4">
               <div className="flex gap-6">
                 <button
                   onClick={() => setActiveTab('ai-copilot')}
-                  className={`pb-2 text-sm ${
+                  className={`pb-2 text-sm transition-all ${
                     activeTab === 'ai-copilot'
                       ? 'text-blue-600 font-semibold border-b-2 border-blue-600'
-                      : 'text-gray-600'
+                      : 'text-gray-600 hover:text-gray-900'
                   }`}
                 >
                   AI Copilot
                 </button>
                 <button
                   onClick={() => setActiveTab('details')}
-                  className={`pb-2 text-sm ${
+                  className={`pb-2 text-sm transition-all ${
                     activeTab === 'details'
                       ? 'text-blue-600 font-semibold border-b-2 border-blue-600'
-                      : 'text-gray-600'
+                      : 'text-gray-600 hover:text-gray-900'
                   }`}
                 >
                   Details
@@ -266,6 +347,17 @@ export default function Home() {
           </div>
         </div>
       </div>
+      
+      {/* Keyboard shortcuts help - toggle with ? key */}
+      <style jsx global>{`
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(-10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fadeIn {
+          animation: fadeIn 0.3s ease-out;
+        }
+      `}</style>
     </main>
   );
 }

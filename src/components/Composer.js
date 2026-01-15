@@ -2,67 +2,62 @@
 
 import React, { useState, useRef } from 'react';
 import { FaBolt, FaCode, FaSmile, FaLink, FaPaperclip, FaHeading } from 'react-icons/fa';
-import { rephraseTone } from '../utils/geminiApi';
+import { rephraseTone } from '../utils/claudeApi';
+
+const EMOJI_LIST = ['😊', '👍', '❤️', '😂', '🎉', '✅', '⚡', '🔥', '💯', '👏', '🙏', '💪', '🎯', '✨', '🚀', '💡'];
 
 const Composer = ({ composerText, setComposerText, handleRephrase, handleSummarize, onSendMessage }) => {
   const [sending, setSending] = useState(false);
-  const [isBold, setIsBold] = useState(false);
-  const [isItalic, setIsItalic] = useState(false);
-  const [isCode, setIsCode] = useState(false);
   const [showRephraseDropdown, setShowRephraseDropdown] = useState(false);
-  const [hasSelectedText, setHasSelectedText] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [attachedFiles, setAttachedFiles] = useState([]);
   const textareaRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   const handleSend = async () => {
     if (composerText.trim()) {
       setSending(true);
       await onSendMessage(composerText);
       setComposerText('');
+      setAttachedFiles([]);
       setSending(false);
     }
   };
+  
+  const handleKeyDown = (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      handleSend();
+    }
+  };
 
-  const applyFormatting = (style) => {
+  const handleFileUpload = (e) => {
+    const files = Array.from(e.target.files || []);
+    const newFiles = files.map(file => ({
+      name: file.name,
+      size: (file.size / 1024).toFixed(2) + ' KB',
+      type: file.type,
+      preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : null
+    }));
+    setAttachedFiles([...attachedFiles, ...newFiles]);
+  };
+  
+  const removeFile = (index) => {
+    setAttachedFiles(attachedFiles.filter((_, i) => i !== index));
+  };
+  
+  const insertEmoji = (emoji) => {
     const textarea = textareaRef.current;
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
-    const selectedText = composerText.substring(start, end);
-
-    if (!selectedText) return;
-
-    let newText = composerText;
-    if (style === 'bold') {
-      newText = composerText.substring(0, start) + `**${selectedText}**` + composerText.substring(end);
-      setIsBold(!isBold);
-    } else if (style === 'italic') {
-      newText = composerText.substring(0, start) + `*${selectedText}*` + composerText.substring(end);
-      setIsItalic(!isItalic);
-    } else if (style === 'code') {
-      newText = composerText.substring(0, start) + `\`${selectedText}\`` + composerText.substring(end);
-      setIsCode(!isCode);
-    } else if (style === 'link') {
-      const url = prompt('Enter the URL:');
-      if (url) {
-        newText = composerText.substring(0, start) + `[${selectedText}](${url})` + composerText.substring(end);
-      }
-    } else if (style === 'heading') {
-      newText = composerText.substring(0, start) + `# ${selectedText}` + composerText.substring(end);
-    }
-
+    const newText = composerText.substring(0, start) + emoji + composerText.substring(end);
     setComposerText(newText);
-    textarea.focus();
-  };
-
-  const handleFileUpload = () => {
-    alert('File upload functionality would be implemented here.');
-  };
-
-  const handleQuickAction = (action) => {
-    if (action === 'grammar') {
-      alert('Grammar and spelling correction would be implemented here.');
-    } else if (action === 'translate') {
-      alert('Translation functionality would be implemented here.');
-    }
+    setShowEmojiPicker(false);
+    
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + emoji.length, start + emoji.length);
+    }, 0);
   };
 
   const handleRephraseOption = async (tone) => {
@@ -70,154 +65,156 @@ const Composer = ({ composerText, setComposerText, handleRephrase, handleSummari
     setShowRephraseDropdown(false);
   };
 
-  const handleTextSelection = () => {
-    const textarea = textareaRef.current;
-    const selectedText = composerText.substring(textarea.selectionStart, textarea.selectionEnd);
-    setHasSelectedText(!!selectedText);
-  };
-
   return (
     <div className="bg-white p-4 border-t border-gray-200">
-      <div className="mb-2">
-        {hasSelectedText && (
-          <>
-            <div className="flex items-center space-x-2 mb-2">
-              <button
-                onClick={() => applyFormatting('bold')}
-                className={`p-0.5 rounded-md ${isBold ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'}`}
-              >
-                <strong className="text-sm">B</strong>
-              </button>
-              <button
-                onClick={() => applyFormatting('italic')}
-                className={`p-0.5 rounded-md ${isItalic ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'}`}
-              >
-                <em className="text-sm">i</em>
-              </button>
-              <button
-                onClick={() => applyFormatting('code')}
-                className={`p-0.5 rounded-md ${isCode ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'}`}
-              >
-                <FaCode className="w-3 h-3" />
-              </button>
-              <button
-                onClick={() => applyFormatting('link')}
-                className="p-0.5 rounded-md text-gray-600 hover:bg-gray-100"
-              >
-                <FaLink className="w-3 h-3" />
-              </button>
-              <button
-                onClick={() => applyFormatting('heading')}
-                className="p-0.5 rounded-md text-gray-600 hover:bg-gray-100"
-              >
-                <FaHeading className="w-3 h-3" />
-              </button>
-              <button
-                onClick={handleFileUpload}
-                className="p-0.5 rounded-md text-gray-600 hover:bg-gray-100"
-              >
-                <FaPaperclip className="w-3 h-3" />
-              </button>
-            </div>
-            <div className="flex items-center space-x-2 mb-2">
-              <button
-                onClick={handleSummarize}
-                className="bg-gray-900 text-white px-3 py-1 rounded-md text-sm hover:bg-gray-800 transition shadow-sm"
-              >
-                Summarize
-              </button>
-              <div className="relative">
-                <button
-                  onClick={() => setShowRephraseDropdown(!showRephraseDropdown)}
-                  className="bg-gray-900 text-white px-3 py-1 rounded-md text-sm hover:bg-gray-800 transition shadow-sm flex items-center"
-                >
-                  Rephrase
-                  <svg className="ml-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                {showRephraseDropdown && (
-                  <div className="absolute z-10 mt-2 w-48 bg-white border border-gray-200 rounded-md shadow-lg">
-                    <button
-                      onClick={() => handleRephraseOption('my-tone')}
-                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-blue-50"
-                    >
-                      My tone of voice
-                    </button>
-                    <button
-                      onClick={() => handleRephraseOption('friendly')}
-                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-blue-50"
-                    >
-                      More friendly
-                    </button>
-                    <button
-                      onClick={() => handleRephraseOption('formal')}
-                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-blue-50"
-                    >
-                      More formal
-                    </button>
-                  </div>
-                )}
+      {attachedFiles.length > 0 && (
+        <div className="mb-3 flex flex-wrap gap-2">
+          {attachedFiles.map((file, index) => (
+            <div key={index} className="relative group bg-slate-100 rounded-lg p-2 flex items-center gap-2 text-sm">
+              {file.preview && (
+                <img src={file.preview} alt={file.name} className="w-10 h-10 object-cover rounded" />
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium text-slate-700 truncate">{file.name}</p>
+                <p className="text-xs text-slate-500">{file.size}</p>
               </div>
+              <button
+                onClick={() => removeFile(index)}
+                className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-slate-200 rounded"
+              >
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
             </div>
-          </>
-        )}
-        <div className="flex items-center space-x-2 mb-2">
+          ))}
+        </div>
+      )}
+      
+      <div className="flex items-start gap-2">
+        <div className="flex-1 relative">
           <textarea
             ref={textareaRef}
             value={composerText}
             onChange={(e) => setComposerText(e.target.value)}
-            onSelect={handleTextSelection}
-            className="flex-1 border rounded-lg p-3 text-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
-            placeholder="Chat..."
+            onKeyDown={handleKeyDown}
+            className="w-full border border-slate-300 rounded-lg p-3 pr-10 text-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm transition-all"
+            placeholder="Type your message... (Ctrl+Enter to send)"
             rows="3"
           />
-          <div className="flex flex-col space-y-2">
+          
+          <div className="absolute right-2 bottom-2">
             <button
-              onClick={handleSend}
-              disabled={sending}
-              className={`bg-gray-900 text-white px-4 py-2 rounded-lg transition flex items-center shadow-sm ${
-                sending ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-800'
-              }`}
+              onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+              className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+              title="Add emoji"
             >
-              {sending ? (
-                <span className="flex items-center">
-                  Sending
-                  <svg className="animate-spin ml-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-                  </svg>
-                </span>
-              ) : (
-                <>
-                  Send
-                  <svg className="ml-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </>
-              )}
+              <FaSmile className="w-4 h-4" />
             </button>
+            
+            {showEmojiPicker && (
+              <div className="absolute bottom-full right-0 mb-2 bg-white border border-gray-200 rounded-lg shadow-lg p-2 grid grid-cols-8 gap-1 z-10">
+                {EMOJI_LIST.map((emoji, index) => (
+                  <button
+                    key={index}
+                    onClick={() => insertEmoji(emoji)}
+                    className="w-8 h-8 hover:bg-gray-100 rounded transition-colors text-lg"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
+        
+        <button
+          onClick={handleSend}
+          disabled={sending || !composerText.trim()}
+          className={`px-4 py-2.5 rounded-lg transition-all flex items-center gap-2 font-medium shadow-sm ${
+            sending || !composerText.trim()
+              ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              : 'bg-blue-600 text-white hover:bg-blue-700 active:scale-95'
+          }`}
+        >
+          {sending ? (
+            <>
+              <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+              </svg>
+              Sending
+            </>
+          ) : (
+            <>
+              Send
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+              </svg>
+            </>
+          )}
+        </button>
       </div>
-      <div className="flex items-center space-x-2 text-gray-500 text-sm">
-        <span>Use 3E + K for shortcuts</span>
-        <FaBolt className="w-4 h-4" />
-        <FaCode className="w-4 h-4" />
-        <FaSmile className="w-4 h-4" />
-        <button
-          onClick={() => handleQuickAction('grammar')}
-          className="ml-2 text-blue-500 hover:underline"
-        >
-          Check Grammar
-        </button>
-        <button
-          onClick={() => handleQuickAction('translate')}
-          className="ml-2 text-blue-500 hover:underline"
-        >
-          Translate
-        </button>
-        <button className="ml-auto text-blue-500 hover:underline">Ask a follow up question...</button>
+      
+      <div className="flex items-center justify-between text-gray-500 text-xs mt-2">
+        <div className="flex items-center gap-3">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            onChange={handleFileUpload}
+            className="hidden"
+            accept="image/*,.pdf,.doc,.docx"
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-1 hover:text-gray-700 transition-colors"
+          >
+            <FaPaperclip className="w-3 h-3" />
+            <span>Attach file</span>
+          </button>
+          <button
+            onClick={handleSummarize}
+            className="flex items-center gap-1 hover:text-blue-600 transition-colors"
+          >
+            <FaBolt className="w-3 h-3" />
+            <span>Summarize</span>
+          </button>
+          <div className="relative">
+            <button
+              onClick={() => setShowRephraseDropdown(!showRephraseDropdown)}
+              className="flex items-center gap-1 hover:text-blue-600 transition-colors"
+            >
+              <FaBolt className="w-3 h-3" />
+              <span>Rephrase</span>
+            </button>
+            {showRephraseDropdown && (
+              <div className="absolute bottom-full mb-1 left-0 bg-white border border-gray-200 rounded-lg shadow-lg z-10 min-w-[150px]">
+                <button
+                  onClick={() => handleRephraseOption('friendly')}
+                  className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 rounded-t-lg"
+                >
+                  Friendly
+                </button>
+                <button
+                  onClick={() => handleRephraseOption('professional')}
+                  className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-blue-50"
+                >
+                  Professional
+                </button>
+                <button
+                  onClick={() => handleRephraseOption('formal')}
+                  className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 rounded-b-lg"
+                >
+                  Formal
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+        <span className="text-gray-400">
+          Ctrl+Enter to send • Esc to clear
+        </span>
       </div>
     </div>
   );

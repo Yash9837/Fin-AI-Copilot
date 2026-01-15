@@ -32,9 +32,21 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
+
+# deployment
+*.log
+.DS_Store
+*.pem
+.vercel
+.netlify
+
+# backup files
+*.bak
+*_temp.js
 
 # typescript
 *.tsbuildinfo

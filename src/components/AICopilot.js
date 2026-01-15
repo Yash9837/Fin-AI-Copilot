@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { generateResponse, generateAdvice, checkInternalContent } from '../utils/geminiApi';
+import { generateResponse, generateAdvice, checkInternalContent } from '../utils/claudeApi';
 import { knowledgeBase } from '../data/dummyData';
 
 const AICopilot = ({ conversation, onAddToComposer }) => {
